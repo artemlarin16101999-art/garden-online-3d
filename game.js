@@ -3,23 +3,28 @@ import * as THREE from 'three';
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 const SERVER_URL = proto + '://' + location.host;
 
+// === RENDERER ===
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 document.body.appendChild(renderer.domElement);
 
+// === SCENE ===
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
 scene.fog = new THREE.Fog(0x87CEEB, 40, 120);
 
+// === CAMERA ===
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
 camera.position.set(0, 20, 25);
 
+// === LIGHT ===
 scene.add(new THREE.AmbientLight(0xffffff, 0.7));
 const sun = new THREE.DirectionalLight(0xffffff, 1.0);
 sun.position.set(30, 50, 20);
 scene.add(sun);
 
+// === GROUND ===
 const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(200, 200),
     new THREE.MeshLambertMaterial({ color: 0x7EC850 })
@@ -31,6 +36,7 @@ const grid = new THREE.GridHelper(200, 40, 0x5a9e3a, 0x5a9e3a);
 grid.position.y = 0.01;
 scene.add(grid);
 
+// === TREES ===
 function createTree() {
     const g = new THREE.Group();
     const trunk = new THREE.Mesh(
@@ -53,6 +59,59 @@ for (let i = 0; i < 50; i++) {
     scene.add(t);
 }
 
+// === ГРЯДКИ (визуал, данные приходят с сервера) ===
+const plotMeshes = {}; // id -> group
+const plotColors = { carrot: 0xFF8C00, tomato: 0xFF4040, corn: 0xFFD700, pumpkin: 0xFF6600 };
+
+function createPlotMesh(data) {
+    const g = new THREE.Group();
+    const soil = new THREE.Mesh(
+        new THREE.BoxGeometry(2, 0.5, 2),
+        new THREE.MeshLambertMaterial({ color: 0x8B4513 })
+    );
+    soil.position.y = 0.25;
+    g.add(soil);
+    g.position.set(data.x, 0, data.z);
+    return g;
+}
+
+function updatePlotMesh(data) {
+    let g = plotMeshes[data.id];
+    if (!g) {
+        g = createPlotMesh(data);
+        scene.add(g);
+        plotMeshes[data.id] = g;
+    }
+    // Убираем старые растения
+    for (let i = g.children.length - 1; i >= 0; i--) {
+        if (g.children[i] !== g.children[0] && i !== 0) g.remove(g.children[i]);
+    }
+    // Оставляем только почву (первый ребёнок)
+    while (g.children.length > 1) {
+        g.remove(g.children[g.children.length - 1]);
+    }
+
+    if (data.crop) {
+        const height = data.ready ? 2.5 : 1.2;
+        const stem = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.15, 0.2, height, 6),
+            new THREE.MeshLambertMaterial({ color: 0x228B22 })
+        );
+        stem.position.y = 0.5 + height / 2;
+        g.add(stem);
+
+        if (data.ready) {
+            const crop = new THREE.Mesh(
+                new THREE.SphereGeometry(0.5, 8, 8),
+                new THREE.MeshLambertMaterial({ color: plotColors[data.crop] || 0xFF0000 })
+            );
+            crop.position.y = 0.5 + height + 0.3;
+            g.add(crop);
+        }
+    }
+}
+
+// === ИГРОКИ ===
 let myId = null;
 let myColor = 0xFF8C42;
 
@@ -98,6 +157,15 @@ function createPlayer(color, isMe = false) {
 const myPlayer = { x: 0, z: 0, ry: 0, mesh: null };
 const otherPlayers = {};
 
+// === МОИ ДАННЫЕ (деньги, семена) ===
+const myStats = { money: 50, seeds: 20 };
+
+// === РЕЖИМ КАМЕРЫ ===
+let cameraMode = 'third'; // 'third' или 'first'
+const firstPersonAnchor = new THREE.Object3D();
+scene.add(firstPersonAnchor);
+
+// === ДЖОЙСТИК ===
 const joy = {
     active: false, id: null,
     bx: 100, by: window.innerHeight - 150, br: 70,
@@ -126,11 +194,59 @@ drawJoystick();
 
 document.addEventListener('touchstart', (e) => {
     const t = e.changedTouches[0];
+    // Касание джойстика
     if (Math.hypot(t.clientX - joy.bx, t.clientY - joy.by) < joy.br + 40) {
         joy.active = true;
         joy.id = t.identifier;
         joy.sx = t.clientX;
         joy.sy = t.clientY;
+        return;
+    }
+    // Кнопка действия (листик) — справа снизу
+    const actionBtn = document.getElementById('btn-action');
+    if (actionBtn) {
+        const r = actionBtn.getBoundingClientRect();
+        if (t.clientX >= r.left && t.clientX <= r.right && t.clientY >= r.top && t.clientY <= r.bottom) {
+            sendAction();
+            return;
+        }
+    }
+    // Кнопка магазина
+    const shopBtn = document.getElementById('btn-shop');
+    if (shopBtn) {
+        const r = shopBtn.getBoundingClientRect();
+        if (t.clientX >= r.left && t.clientX <= r.right && t.clientY >= r.top && t.clientY <= r.bottom) {
+            toggleShop();
+            return;
+        }
+    }
+    // Кнопка камеры
+    const camBtn = document.getElementById('btn-camera');
+    if (camBtn) {
+        const r = camBtn.getBoundingClientRect();
+        if (t.clientX >= r.left && t.clientX <= r.right && t.clientY >= r.top && t.clientY <= r.bottom) {
+            cameraMode = (cameraMode === 'third') ? 'first' : 'third';
+            return;
+        }
+    }
+    // Покупки в магазине
+    if (shopOpen) {
+        const buy1 = document.getElementById('buy-seed-1');
+        if (buy1) {
+            const r = buy1.getBoundingClientRect();
+            if (t.clientX >= r.left && t.clientX <= r.right && t.clientY >= r.top && t.clientY <= r.bottom) {
+                ws.send(JSON.stringify({ type: 'buy_seed' }));
+                return;
+            }
+        }
+        const buy5 = document.getElementById('buy-seed-5');
+        if (buy5) {
+            const r = buy5.getBoundingClientRect();
+            if (t.clientX >= r.left && t.clientX <= r.right && t.clientY >= r.top && t.clientY <= r.bottom) {
+                ws.send(JSON.stringify({ type: 'buy_bundle' }));
+                return;
+            }
+        }
     }
 }, { passive: false });
 
@@ -164,10 +280,49 @@ document.addEventListener('touchend', (e) => {
     }
 });
 
+// === КЛАВИАТУРА ===
 const keys = {};
-document.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+document.addEventListener('keydown', (e) => {
+    keys[e.key.toLowerCase()] = true;
+    // Действие на пробел
+    if (e.key === ' ') sendAction();
+    // Магазин на Enter
+    if (e.key === 'Enter') toggleShop();
+    // Смена камеры на C
+    if (e.key.toLowerCase() === 'c') {
+        cameraMode = (cameraMode === 'third') ? 'first' : 'third';
+    }
+});
 document.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 
+// === UI: МАГАЗИН ===
+let shopOpen = false;
+let messageTimer = 0;
+let messageText = '';
+
+function updateUI() {
+    const m = document.getElementById('money');
+    const s = document.getElementById('seeds');
+    if (m) m.textContent = myStats.money;
+    if (s) s.textContent = myStats.seeds;
+}
+
+function showMessage(text) {
+    messageText = text;
+    messageTimer = 120;
+}
+
+function toggleShop() {
+    shopOpen = !shopOpen;
+    const shopEl = document.getElementById('shop');
+    if (shopEl) shopEl.style.display = shopOpen ? 'block' : 'none';
+    if (shopEl) {
+        document.getElementById('shop-money').textContent = myStats.money;
+        document.getElementById('shop-seeds').textContent = myStats.seeds;
+    }
+}
+
+// === WEBSOCKET ===
 let ws = null;
 let sendTimer = 0;
 const SEND_INTERVAL = 0.05;
@@ -203,6 +358,12 @@ function connect() {
             myPlayer.mesh = createPlayer(myColor, true);
             scene.add(myPlayer.mesh);
 
+            // Мои данные с сервера
+            myStats.money = msg.player.money;
+            myStats.seeds = msg.player.seeds;
+            updateUI();
+
+            // Чужие игроки
             let count = 0;
             for (const id in msg.players) {
                 if (parseInt(id) === myId) continue;
@@ -210,6 +371,9 @@ function connect() {
                 count++;
             }
             countEl.textContent = 'Online: ' + (count + 1);
+
+            // Грядки
+            for (const plot of msg.plots) updatePlotMesh(plot);
         }
         else if (msg.type === 'join') {
             if (msg.player.id !== myId) {
@@ -234,6 +398,22 @@ function connect() {
                 otherPlayers[id].ry = data.ry;
             }
         }
+        else if (msg.type === 'plots') {
+            for (const plot of msg.plots) updatePlotMesh(plot);
+        }
+        else if (msg.type === 'stats') {
+            myStats.money = msg.money;
+            myStats.seeds = msg.seeds;
+            updateUI();
+            if (msg.message) showMessage(msg.message);
+            if (shopOpen) {
+                document.getElementById('shop-money').textContent = myStats.money;
+                document.getElementById('shop-seeds').textContent = myStats.seeds;
+            }
+        }
+        else if (msg.type === 'message') {
+            showMessage(msg.text);
+        }
     };
 }
 
@@ -249,14 +429,23 @@ function addOtherPlayer(data) {
     };
 }
 
+function sendAction() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'action' }));
+    }
+}
+
 connect();
 
+// === ИГРОВОЙ ЦИКЛ ===
 const clock = new THREE.Clock();
+let bobPhase = 0;
 
 function animate() {
     requestAnimationFrame(animate);
     const dt = clock.getDelta();
 
+    // Движение
     let moveX = 0, moveZ = 0;
     if (joy.active) { moveX = joy.dx; moveZ = joy.dy; }
     if (keys['w'] || keys['ц']) moveZ -= 1;
@@ -274,19 +463,27 @@ function animate() {
         myPlayer.x = Math.max(-50, Math.min(50, myPlayer.x));
         myPlayer.z = Math.max(-50, Math.min(50, myPlayer.z));
         myPlayer.ry = Math.atan2(normX, normZ);
+        bobPhase += dt * 12;
     }
 
     if (myPlayer.mesh) {
         myPlayer.mesh.position.set(myPlayer.x, 0, myPlayer.z);
         myPlayer.mesh.rotation.y = myPlayer.ry;
+        // Скрываем своё тело в виде от 1 лица
+        myPlayer.mesh.visible = (cameraMode === 'third');
     }
 
+    // Отправка на сервер
     sendTimer += dt;
     if (sendTimer >= SEND_INTERVAL && ws && ws.readyState === WebSocket.OPEN) {
         sendTimer = 0;
-        ws.send(JSON.stringify({ type: 'move', x: myPlayer.x, z: myPlayer.z, ry: myPlayer.ry }));
+        ws.send(JSON.stringify({
+            type: 'move',
+            x: myPlayer.x, z: myPlayer.z, ry: myPlayer.ry
+        }));
     }
 
+    // Интерполяция чужих
     for (const id in otherPlayers) {
         const p = otherPlayers[id];
         p.x += (p.targetX - p.x) * 0.2;
@@ -295,14 +492,52 @@ function animate() {
         p.mesh.rotation.y = p.ry;
     }
 
-    camera.position.x += (myPlayer.x - camera.position.x) * 0.1;
-    camera.position.z += (myPlayer.z + 22 - camera.position.z) * 0.1;
-    camera.lookAt(myPlayer.x, 1.5, myPlayer.z);
+    // Камера
+    if (cameraMode === 'third') {
+        // Вид от 3 лица: сзади сверху
+        const camDist = 10;
+        const camHeight = 8;
+        const behindX = myPlayer.x - Math.sin(myPlayer.ry) * camDist;
+        const behindZ = myPlayer.z - Math.cos(myPlayer.ry) * camDist;
+        camera.position.x += (behindX - camera.position.x) * 0.15;
+        camera.position.z += (behindZ - camera.position.z) * 0.15;
+        camera.position.y += (camHeight - camera.position.y) * 0.15;
+        camera.lookAt(myPlayer.x, 1.5, myPlayer.z);
+    } else {
+        // Вид от 1 лица: из глаз
+        const eyeHeight = 1.6;
+        const fwd = 0.3;
+        const eyeX = myPlayer.x + Math.sin(myPlayer.ry) * fwd;
+        const eyeZ = myPlayer.z + Math.cos(myPlayer.ry) * fwd;
+        // Лёгкое покачивание при ходьбе
+        const bob = (mLen > 0.1) ? Math.sin(bobPhase) * 0.08 : 0;
+        camera.position.x += (eyeX - camera.position.x) * 0.5;
+        camera.position.z += (eyeZ - camera.position.z) * 0.5;
+        camera.position.y += (eyeHeight + bob - camera.position.y) * 0.5;
+        // Смотрим туда, куда идём
+        const lookX = myPlayer.x + Math.sin(myPlayer.ry) * 5;
+        const lookZ = myPlayer.z + Math.cos(myPlayer.ry) * 5;
+        camera.lookAt(lookX, eyeHeight + bob, lookZ);
+    }
+
+    // Сообщение по центру
+    if (messageTimer > 0) {
+        messageTimer -= 1;
+        const msgEl = document.getElementById('msg');
+        if (msgEl) {
+            msgEl.textContent = messageText;
+            msgEl.style.opacity = Math.min(1, messageTimer / 30);
+        }
+    } else {
+        const msgEl = document.getElementById('msg');
+        if (msgEl) msgEl.style.opacity = 0;
+    }
 
     renderer.render(scene, camera);
 }
 animate();
 
+// === RESIZE ===
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
