@@ -7,7 +7,7 @@ const PORT = process.env.PORT || 8080;
 
 const httpServer = http.createServer((req, res) => {
     let file = req.url === '/' ? '/index.html' : req.url.split('?')[0];
-    const filePath = path.join(__dirname, 'public', file);
+    const filePath = path.join(__dirname, file);
     fs.readFile(filePath, (err, data) => {
         if (err) { res.writeHead(404); res.end('Not found'); return; }
         const ext = path.extname(filePath);
