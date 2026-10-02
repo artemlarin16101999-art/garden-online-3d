@@ -7,5 +7,10 @@
   },
   "dependencies": {
     "ws": "^8.16.0"
-  }
+  },
+  "files": [
+    "index.js",
+    "index.html",
+    "game.js"
+  ]
 }
