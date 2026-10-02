@@ -14,8 +14,11 @@ const httpServer = http.createServer((req, res) => {
 
     const filePath = path.join(__dirname, file);
 
+    console.log('Request:', req.url, '->', filePath);
+
     fs.readFile(filePath, (err, data) => {
         if (err) {
+            console.log('Not found:', filePath);
             res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
             res.end('Not found');
             return;
@@ -41,12 +44,11 @@ const httpServer = http.createServer((req, res) => {
 
 const wss = new WebSocket.Server({ server: httpServer });
 
-const TICK_MS = 50; // 20 обновлений в секунду
+const TICK_MS = 50;
 const players = {};
 let nextId = 1;
 const COLORS = [0xFF8C42, 0xFFD700, 0x9FC5E8, 0x1a1a2e, 0x9B59B6, 0x2ECC71, 0xE74C3C];
 
-// --- Константы мира и экономики (серверные, клиент их не может подделать) ---
 const WORLD = {
     minX: -50, maxX: 50,
     minZ: -50, maxZ: 50
@@ -54,21 +56,20 @@ const WORLD = {
 
 const ECONOMY = {
     startMoney: 50,
-    startSeeds: 20,           // 🎁 теперь 20 семян
-    seedPrice: 10,            // покупка 1 семечка
-    bundlePrice: 50,          // покупка 5 семечек со скидкой
+    startSeeds: 20,
+    seedPrice: 10,
+    bundlePrice: 50,
     bundleCount: 5,
-    rewards: {                // сколько монет даёт урожай
+    rewards: {
         carrot: 20,
         tomato: 30,
         corn: 50,
         pumpkin: 100
     },
-    growTimeMs: 8000,         // время роста (8 сек)
+    growTimeMs: 8000,
     maxPlots: 8
 };
 
-// --- Грядки (единые для всех игроков) ---
 const plots = [];
 for (let i = 0; i < ECONOMY.maxPlots; i++) {
     plots.push({
@@ -97,7 +98,6 @@ wss.on('connection', (ws) => {
         seeds: ECONOMY.startSeeds
     };
 
-    // 1. Шлём новому игроку его данные, список игроков, грядки и константы
     ws.send(JSON.stringify({
         type: 'init',
         id,
@@ -108,12 +108,10 @@ wss.on('connection', (ws) => {
         economy: ECONOMY
     }));
 
-    // 2. Остальным — что появился новый
     broadcast({ type: 'join', player: players[id] }, ws);
 
     console.log('Player ' + id + ' connected. Total: ' + Object.keys(players).length);
 
-    // --- Приём сообщений ---
     ws.on('message', (data) => {
         let msg;
         try {
@@ -126,7 +124,6 @@ wss.on('connection', (ws) => {
         if (!p) return;
 
         if (msg.type === 'move') {
-            // Античит: максимум 2 единицы за тик
             const dx = msg.x - p.x;
             const dz = msg.z - p.z;
             const dist = Math.hypot(dx, dz);
@@ -144,7 +141,6 @@ wss.on('connection', (ws) => {
         }
 
         else if (msg.type === 'action') {
-            // Одно действие: посадить / полить / собрать — по ближайшей грядке
             handlePlotAction(p, ws);
         }
 
@@ -186,9 +182,7 @@ wss.on('connection', (ws) => {
     });
 });
 
-// --- Логика грядок (на сервере!) ---
 function handlePlotAction(player, ws) {
-    // Ищем ближайшую грядку в радиусе 4
     let closest = null;
     let closestDist = 4;
     for (const plot of plots) {
@@ -203,7 +197,6 @@ function handlePlotAction(player, ws) {
         return;
     }
 
-    // Если грядка готова — собрать
     if (closest.ready && closest.crop) {
         const reward = ECONOMY.rewards[closest.crop] || 10;
         player.money += reward;
@@ -213,7 +206,6 @@ function handlePlotAction(player, ws) {
             seeds: player.seeds,
             message: 'Собрано! +' + reward + ' монет'
         }));
-        // Сброс грядки
         closest.crop = null;
         closest.ready = false;
         closest.plantedAt = 0;
@@ -222,7 +214,6 @@ function handlePlotAction(player, ws) {
         return;
     }
 
-    // Если грядка пустая — посадить (нужно семечко)
     if (!closest.crop) {
         if (player.seeds <= 0) {
             ws.send(JSON.stringify({ type: 'message', text: 'Нет семян. Купи в магазине.' }));
@@ -245,11 +236,9 @@ function handlePlotAction(player, ws) {
         return;
     }
 
-    // Если растёт — можно ускорить поливом (необязательно) — просто ответ
     ws.send(JSON.stringify({ type: 'message', text: 'Растёт... подожди' }));
 }
 
-// --- Автоматический рост грядок раз в секунду ---
 setInterval(() => {
     let changed = false;
     const now = Date.now();
@@ -264,7 +253,6 @@ setInterval(() => {
     if (changed) broadcast({ type: 'plots', plots });
 }, 1000);
 
-// --- Рассылка состояния игроков каждые 50 мс ---
 function broadcast(msg, exclude) {
     const data = JSON.stringify(msg);
     wss.clients.forEach((client) => {
