@@ -8,22 +8,30 @@ const HTML_PAGE = `<!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Garden Online</title>
 <style>
-body { margin:0; overflow:hidden; background:#87CEEB; font-family:Arial,sans-serif; touch-action:none; user-select:none; }
+html, body { margin:0; padding:0; overflow:hidden; background:#87CEEB; font-family:Arial,sans-serif; touch-action:none; user-select:none; -webkit-user-select:none; width:100%; height:100%; position:fixed; }
 #ui { position:fixed; top:10px; left:10px; color:#fff; text-shadow:2px 2px 4px #000; font-size:15px; z-index:10; pointer-events:none; }
 #status { position:fixed; top:10px; right:10px; color:#fff; text-shadow:2px 2px 4px #000; font-size:13px; z-index:10; pointer-events:none; }
 #count { position:fixed; top:30px; right:10px; color:#fff; text-shadow:2px 2px 4px #000; font-size:13px; z-index:10; pointer-events:none; }
 #msg { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); color:#fff; font-size:22px; text-shadow:2px 2px 6px #000; z-index:20; pointer-events:none; transition:opacity .3s; opacity:0; }
-.btn { position:fixed; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:26px; font-weight:bold; z-index:10; cursor:pointer; text-shadow:1px 1px 3px #000; border:3px solid #fff; }
-#btn-action { right:30px; bottom:180px; width:90px; height:90px; background:rgba(80,190,90,.85); }
-#btn-shop { right:30px; bottom:290px; width:70px; height:70px; background:rgba(200,100,200,.85); font-size:22px; }
-#btn-camera { right:30px; bottom:380px; width:70px; height:70px; background:rgba(100,150,220,.85); font-size:22px; }
-#shop { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(20,20,40,.95); border:3px solid #fff; border-radius:16px; padding:20px; color:#fff; z-index:30; width:300px; display:none; font-size:16px; }
+
+.btn { position:fixed; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:28px; font-weight:bold; z-index:20; cursor:pointer; text-shadow:1px 1px 3px #000; border:3px solid #fff; box-shadow:0 3px 10px rgba(0,0,0,0.3); }
+.btn:active { transform:scale(0.92); }
+
+#btn-action { right:20px; bottom:130px; width:90px; height:90px; background:rgba(80,190,90,0.9); }
+#btn-shop   { right:20px; bottom:240px; width:70px; height:70px; background:rgba(200,100,200,0.9); font-size:22px; }
+#btn-camera { right:105px; bottom:240px; width:70px; height:70px; background:rgba(100,150,220,0.9); font-size:22px; }
+
+#shop { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(20,20,40,0.95); border:3px solid #fff; border-radius:16px; padding:20px; color:#fff; z-index:30; width:280px; max-width:90vw; display:none; font-size:16px; }
 #shop h2 { margin:0 0 12px; text-align:center; }
-#shop .row { display:flex; justify-content:space-between; align-items:center; margin:10px 0; }
+#shop .row { display:flex; justify-content:space-between; align-items:center; margin:10px 0; gap:10px; }
 #shop button { background:#4caf50; color:#fff; border:none; padding:10px 16px; border-radius:8px; font-size:16px; cursor:pointer; }
+#shop button:active { background:#3d8b40; }
+
+/* Джойстик отрисовывается в SVG, но обёртка для кликов */
+#joy-container { position:fixed; left:20px; bottom:20px; width:180px; height:180px; z-index:15; }
 </style>
 </head>
 <body>
@@ -38,7 +46,7 @@ body { margin:0; overflow:hidden; background:#87CEEB; font-family:Arial,sans-ser
 <h2>🛒 Магазин</h2>
 <div class="row"><span>💰 Монеты:</span><span id="shop-money">0</span></div>
 <div class="row"><span>🌱 Семена:</span><span id="shop-seeds">0</span></div>
-<hr style="border-color:rgba(255,255,255,.2);">
+<hr style="border-color:rgba(255,255,255,0.2);">
 <div class="row"><span>1 семечко — 10</span><button id="buy-seed-1">Купить</button></div>
 <div class="row"><span>5 семян — 50</span><button id="buy-seed-5">Купить</button></div>
 </div>
@@ -138,7 +146,15 @@ const otherPlayers = {};
 const myStats = { money: 50, seeds: 20 };
 let cameraMode = 'third';
 
-const joy = { active: false, id: null, bx: 100, by: window.innerHeight - 150, br: 70, sx: 100, sy: window.innerHeight - 150, sr: 30, dx: 0, dy: 0 };
+// === ДЖОЙСТИК ===
+const joy = { active: false, id: null, bx: 110, by: 0, br: 70, sx: 110, sy: 0, sr: 30, dx: 0, dy: 0 };
+
+function updateJoyPositions() {
+  joy.bx = 110;
+  joy.by = window.innerHeight - 110;
+  joy.sx = joy.bx;
+  joy.sy = joy.by;
+}
 
 function drawJoystick() {
   let svg = document.getElementById('joy-svg');
@@ -150,8 +166,113 @@ function drawJoystick() {
   }
   svg.innerHTML = '<circle cx="' + joy.bx + '" cy="' + joy.by + '" r="' + joy.br + '" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.6)" stroke-width="3"/><circle cx="' + joy.sx + '" cy="' + joy.sy + '" r="' + joy.sr + '" fill="rgba(255,255,255,0.5)" stroke="rgba(255,255,255,0.9)" stroke-width="3"/>';
 }
+
+updateJoyPositions();
 drawJoystick();
 
+window.addEventListener('resize', () => {
+  updateJoyPositions();
+  drawJoystick();
+});
+
+// === ОБРАБОТКА КАСАНИЙ И МЫШИ ===
+function handleDown(x, y, id) {
+  // Джойстик
+  if (Math.hypot(x - joy.bx, y - joy.by) < joy.br + 40) {
+    joy.active = true; joy.id = id; joy.sx = x; joy.sy = y;
+    drawJoystick();
+    return;
+  }
+  // Кнопки
+  const ids = ['btn-action', 'btn-shop', 'btn-camera'];
+  for (const bid of ids) {
+    const el = document.getElementById(bid);
+    if (!el) continue;
+    const r = el.getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+      if (bid === 'btn-action') sendAction();
+      if (bid === 'btn-shop') toggleShop();
+      if (bid === 'btn-camera') cameraMode = (cameraMode === 'third') ? 'first' : 'third';
+      return;
+    }
+  }
+  // Магазин
+  if (shopOpen) {
+    const b1 = document.getElementById('buy-seed-1');
+    if (b1) {
+      const r = b1.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+        ws.send(JSON.stringify({ type: 'buy_seed' })); return;
+      }
+    }
+    const b5 = document.getElementById('buy-seed-5');
+    if (b5) {
+      const r = b5.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+        ws.send(JSON.stringify({ type: 'buy_bundle' })); return;
+      }
+    }
+  }
+}
+
+function handleMove(x, y, id) {
+  if (!joy.active || joy.id !== id) return;
+  let dx = x - joy.bx, dy = y - joy.by;
+  const d = Math.hypot(dx, dy);
+  if (d > joy.br) { dx = dx / d * joy.br; dy = dy / d * joy.br; }
+  joy.sx = joy.bx + dx; joy.sy = joy.by + dy;
+  joy.dx = dx / joy.br; joy.dy = dy / joy.br;
+  drawJoystick();
+}
+
+function handleUp(id) {
+  if (joy.active && joy.id === id) {
+    joy.active = false; joy.id = null;
+    joy.sx = joy.bx; joy.sy = joy.by; joy.dx = 0; joy.dy = 0;
+    drawJoystick();
+  }
+}
+
+// Touch
+document.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  for (const t of e.changedTouches) handleDown(t.clientX, t.clientY, t.identifier);
+}, { passive: false });
+document.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  for (const t of e.changedTouches) handleMove(t.clientX, t.clientY, t.identifier);
+}, { passive: false });
+document.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  for (const t of e.changedTouches) handleUp(t.identifier);
+}, { passive: false });
+document.addEventListener('touchcancel', (e) => {
+  for (const t of e.changedTouches) handleUp(t.identifier);
+});
+
+// Mouse (для ПК)
+let mouseDownId = 'mouse';
+document.addEventListener('mousedown', (e) => {
+  handleDown(e.clientX, e.clientY, mouseDownId);
+});
+document.addEventListener('mousemove', (e) => {
+  if (joy.active) handleMove(e.clientX, e.clientY, mouseDownId);
+});
+document.addEventListener('mouseup', (e) => {
+  handleUp(mouseDownId);
+});
+
+// === КЛАВИАТУРА ===
+const keys = {};
+document.addEventListener('keydown', (e) => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key === ' ') sendAction();
+  if (e.key === 'Enter') toggleShop();
+  if (e.key.toLowerCase() === 'c') cameraMode = (cameraMode === 'third') ? 'first' : 'third';
+});
+document.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+// === WEBSOCKET ===
 let ws = null;
 let sendTimer = 0;
 const SEND_INTERVAL = 0.05;
@@ -220,67 +341,6 @@ function toggleShop() {
 }
 function sendAction() { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'action' })); }
 
-document.addEventListener('touchstart', (e) => {
-  const t = e.changedTouches[0];
-  if (Math.hypot(t.clientX - joy.bx, t.clientY - joy.by) < joy.br + 40) {
-    joy.active = true; joy.id = t.identifier; joy.sx = t.clientX; joy.sy = t.clientY; return;
-  }
-  const hits = ['btn-action', 'btn-shop', 'btn-camera'];
-  for (const id of hits) {
-    const el = document.getElementById(id);
-    const r = el.getBoundingClientRect();
-    if (t.clientX >= r.left && t.clientX <= r.right && t.clientY >= r.top && t.clientY <= r.bottom) {
-      if (id === 'btn-action') sendAction();
-      if (id === 'btn-shop') toggleShop();
-      if (id === 'btn-camera') cameraMode = (cameraMode === 'third') ? 'first' : 'third';
-      return;
-    }
-  }
-  if (shopOpen) {
-    const b1 = document.getElementById('buy-seed-1').getBoundingClientRect();
-    if (t.clientX >= b1.left && t.clientX <= b1.right && t.clientY >= b1.top && t.clientY <= b1.bottom) {
-      ws.send(JSON.stringify({ type: 'buy_seed' })); return;
-    }
-    const b5 = document.getElementById('buy-seed-5').getBoundingClientRect();
-    if (t.clientX >= b5.left && t.clientX <= b5.right && t.clientY >= b5.top && t.clientY <= b5.bottom) {
-      ws.send(JSON.stringify({ type: 'buy_bundle' })); return;
-    }
-  }
-}, { passive: false });
-
-document.addEventListener('touchmove', (e) => {
-  if (!joy.active) return;
-  for (const t of e.changedTouches) {
-    if (t.identifier === joy.id) {
-      let dx = t.clientX - joy.bx, dy = t.clientY - joy.by;
-      const d = Math.hypot(dx, dy);
-      if (d > joy.br) { dx = dx / d * joy.br; dy = dy / d * joy.br; }
-      joy.sx = joy.bx + dx; joy.sy = joy.by + dy;
-      joy.dx = dx / joy.br; joy.dy = dy / joy.br;
-      drawJoystick();
-    }
-  }
-}, { passive: false });
-
-document.addEventListener('touchend', (e) => {
-  for (const t of e.changedTouches) {
-    if (t.identifier === joy.id) {
-      joy.active = false; joy.id = null;
-      joy.sx = joy.bx; joy.sy = joy.by; joy.dx = 0; joy.dy = 0;
-      drawJoystick();
-    }
-  }
-});
-
-const keys = {};
-document.addEventListener('keydown', (e) => {
-  keys[e.key.toLowerCase()] = true;
-  if (e.key === ' ') sendAction();
-  if (e.key === 'Enter') toggleShop();
-  if (e.key.toLowerCase() === 'c') cameraMode = (cameraMode === 'third') ? 'first' : 'third';
-});
-document.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
-
 connect();
 const clock = new THREE.Clock();
 let bobPhase = 0;
@@ -290,10 +350,10 @@ function animate() {
   const dt = clock.getDelta();
   let moveX = 0, moveZ = 0;
   if (joy.active) { moveX = joy.dx; moveZ = joy.dy; }
-  if (keys['w'] || keys['ц']) moveZ -= 1;
-  if (keys['s'] || keys['ы']) moveZ += 1;
-  if (keys['a'] || keys['ф']) moveX -= 1;
-  if (keys['d'] || keys['в']) moveX += 1;
+  if (keys['w'] || keys['ц'] || keys['arrowup']) moveZ -= 1;
+  if (keys['s'] || keys['ы'] || keys['arrowdown']) moveZ += 1;
+  if (keys['a'] || keys['ф'] || keys['arrowleft']) moveX -= 1;
+  if (keys['d'] || keys['в'] || keys['arrowright']) moveX += 1;
   const mLen = Math.hypot(moveX, moveZ);
   if (mLen > 0.1) {
     const nX = moveX / Math.max(1, mLen), nZ = moveZ / Math.max(1, mLen);
@@ -357,6 +417,8 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  updateJoyPositions();
+  drawJoystick();
 });
 </script>
 </body>
@@ -364,7 +426,6 @@ window.addEventListener('resize', () => {
 
 // ============ СЕРВЕР ============
 const httpServer = http.createServer((req, res) => {
-    // Отдаём HTML на любой запрос
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(HTML_PAGE);
 });
